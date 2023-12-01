@@ -77,15 +77,19 @@ except ImportError as e:
 if MISTRAL:
     __all__.append(FlashMistral)
 
+SPECULATE = None
+
 
 def get_model(
     model_id: str,
     revision: Optional[str],
     sharded: bool,
     quantize: Optional[str],
+    speculate: Optional[int],
     dtype: Optional[str],
     trust_remote_code: bool,
 ) -> Model:
+    global SPECULATE
     if dtype is None:
         dtype = torch.float16
     elif dtype == "float16":
@@ -136,9 +140,18 @@ def get_model(
         medusa_config = config_dict
         model_id = config_dict["base_model_name_or_path"]
         revision = "main"
+        SPECULATE = config_dict["medusa_num_heads"]
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
+        method = "medusa"
+    else:
+        if speculate is not None:
+            SPECULATE = speculate
+        else:
+            SPECULATE = 2
+        method = "n-gram"
+    logger.info(f"Using speculation {method} with {SPECULATE} input ids.")
 
     model_type = config_dict["model_type"]
 
