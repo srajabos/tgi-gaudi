@@ -1,16 +1,17 @@
 import os
 import tempfile
+bucket = int(os.getenv("BUCKET", "0"))
 import itertools
 import time
 import glob
 
 from text_generation_server.utils.tokens import batch_top_tokens
 import torch
-
+import math
 from dataclasses import dataclass
 from opentelemetry import trace
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizerBase, AutoConfig
-from typing import Optional, Tuple, List, Type, Dict
+from typing import Optional, Tuple, List, Type, Dict, Generator
 from habana_frameworks.torch.hpu import wrap_in_hpu_graph
 import habana_frameworks.torch as htorch
 from contextlib import nullcontext
@@ -138,6 +139,33 @@ class CausalLMRequest:
         self.idx = new_idx
         return (new_idx, prev)
 
+def round(prompt_len, bucket_size):
+    return int(math.ceil(prompt_len / bucket_size) * bucket_size)
+
+def incrementor(bucket_size, prompt_len):
+    assert bucket_size > 0
+    passnum = -1
+    while True:
+        passnum += 1
+        if passnum == 0:
+            token_idx = prompt_len
+            allocated_space = round(prompt_len, bucket_size)
+            if prompt_len % bucket_size == 0:
+                allocated_space += bucket_size
+            need_expansion = True
+        else:
+            token_idx += 1
+            need_expansion = token_idx >= allocated_space
+            if need_expansion:
+                assert (allocated_space - token_idx) <= bucket_size
+                allocated_space += bucket_size
+        yield {
+            "allocated_space": allocated_space,
+            "passnum": passnum,
+            "token_idx": token_idx,
+            "need_expansion": need_expansion,
+        }
+
 @dataclass
 class CausalLMBatch(Batch):
     batch_id: int
@@ -159,6 +187,9 @@ class CausalLMBatch(Batch):
 
     input_length: int
     right_padding: int
+
+    # a generator for bucketing purposes
+    bucketing_info: Optional[Generator[Dict, None, None]] = None
 
     def to_pb(self) -> generate_pb2.CachedBatch:
         return generate_pb2.CachedBatch(
@@ -332,8 +363,15 @@ class CausalLMBatch(Batch):
 
         input_ids = tokenized_inputs["input_ids"]
         attention_mask = tokenized_inputs["attention_mask"]
+        prompt_len = input_ids.shape[-1]
+        inc = iter(incrementor(bucket, prompt_len)) if bucket > 0 else None
 
         if is_optimized_for_gaudi:
+            if bucket > 0:
+                allocated_len = round(prompt_len, bucket)
+                if prompt_len % bucket == 0:
+                    allocated_len += bucket
+                padding_right_offset = allocated_len - prompt_len
             input_ids = torch.nn.functional.pad(
                 input_ids, (0, max_new_tokens + extra_padding), value=tokenizer.pad_token_id
             )
@@ -365,7 +403,8 @@ class CausalLMBatch(Batch):
             top_n_tokens_tensor=top_n_tokens_tensor,
             max_tokens=max_tokens,
             input_length=max_input_length,
-            right_padding=max_new_tokens + extra_padding if is_optimized_for_gaudi else 0
+            right_padding=max_new_tokens + extra_padding if is_optimized_for_gaudi else 0,
+            bucketing_info=inc
         )
 
     @tracer.start_as_current_span("filter")
@@ -553,6 +592,37 @@ class CausalLM(Model):
         scenario = 'PREFILL' if prefill else 'GENERATE'
         dbg_trace(scenario, f'bs:{batch.input_ids.size(0)} num_reqs:{len(batch.requests)} seq_len:{batch.input_ids.shape[1]}')
         self.step = self.step + 1
+        if batch.bucketing_info is not None:
+            params = next(batch.bucketing_info)
+            if params['passnum'] > 0 and params["need_expansion"]:
+                # params['passnum'] > 0 because for the first pass, padding is already done in from_pb
+                pad_amount = params["allocated_space"] - batch.input_ids.shape[-1]
+                batch.input_ids = torch.nn.functional.pad(batch.input_ids, (0, pad_amount), value=0) # TODO pad_token_id is assumed to be 0. use tokenizer.pad_token_id
+                #batch.all_input_ids = [torch.nn.functional.pad(k, (0, 0, 0, pad_amount), value=0) for k in batch.all_input_ids] # TODO pad_token_id is assumed to be 0. use tokenizer.pad_token_id
+                for req in batch.requests:
+                    req.all_input_ids = torch.nn.functional.pad(req.all_input_ids, (0,0,0,pad_amount), value=0)
+                if batch.attention_mask is not None:
+                    batch.attention_mask = torch.nn.functional.pad(
+                        batch.attention_mask, (0, pad_amount), value=0
+                    )
+                if batch.past_key_values is not None:
+                    new_kv = [None for i in range(len(batch.past_key_values))]
+                    for i in range(len(batch.past_key_values)):
+                        tmp_lst = [None for j in range(len(batch.past_key_values[i]))]
+                        for j in range(len(batch.past_key_values[i])):
+                            pad_tuple = (0, 0, 0, pad_amount)
+                            # Different models might have different shapes of kv-cache
+                            # create_pad_arg handles them on a per-model basis
+                            # This is a necessary (but not sufficient) condition: what ever dimension we are padding, should be a multiple of bucket
+                            # This check is added in case we get a new model with a new kv-cache structure, and we attempt to pad some wrong dimension
+                            assert batch.past_key_values[i][j].shape[-(len(pad_tuple) // 2)] % bucket == 0, f'{batch.past_key_values[i][j].shape} {pad_tuple}'
+                            tmp_lst[j] = torch.nn.functional.pad(
+                                batch.past_key_values[i][j], pad_tuple, value=0 # TODO use tokenizer.pad_token_id
+                            )
+                        new_kv[i] = tuple(tmp_lst)
+                    batch.past_key_values = tuple(new_kv)
+                batch.padding_right_offset = pad_amount
+
         if self.hb_profer_started == True and self.step > self.profiling_warmup_steps + self.profiling_steps:
             self.hb_profer.stop()
             self.hb_profer_started = False
