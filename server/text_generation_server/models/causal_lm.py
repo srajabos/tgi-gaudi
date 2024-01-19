@@ -371,15 +371,18 @@ class CausalLMBatch(Batch):
                 allocated_len = round(prompt_len, bucket)
                 if prompt_len % bucket == 0:
                     allocated_len += bucket
-                padding_right_offset = allocated_len - prompt_len
+                pad_amount = allocated_len - prompt_len
+            else:
+                pad_amount = max_new_tokens + extra_padding
             input_ids = torch.nn.functional.pad(
-                input_ids, (0, max_new_tokens + extra_padding), value=tokenizer.pad_token_id
+                input_ids, (0, pad_amount), value=tokenizer.pad_token_id
             )
             attention_mask = torch.nn.functional.pad(
-                attention_mask, (0, max_new_tokens + extra_padding), value=0)
+                attention_mask, (0, pad_amount), value=0)
             all_input_ids = input_ids.T.split(1, dim=1)
         else:
             all_input_ids = input_ids.clone().T.split(1, dim=1)
+            pad_amount = 0
 
         for r in requests:
             r.all_input_ids = all_input_ids[r.idx]
@@ -403,7 +406,7 @@ class CausalLMBatch(Batch):
             top_n_tokens_tensor=top_n_tokens_tensor,
             max_tokens=max_tokens,
             input_length=max_input_length,
-            right_padding=max_new_tokens + extra_padding if is_optimized_for_gaudi else 0,
+            right_padding=pad_amount,
             bucketing_info=inc
         )
 
@@ -621,7 +624,7 @@ class CausalLM(Model):
                             )
                         new_kv[i] = tuple(tmp_lst)
                     batch.past_key_values = tuple(new_kv)
-                batch.padding_right_offset = pad_amount
+                #batch.padding_right_offset = pad_amount
 
         if self.hb_profer_started == True and self.step > self.profiling_warmup_steps + self.profiling_steps:
             self.hb_profer.stop()
