@@ -201,6 +201,7 @@ class CausalLMBatch(Batch):
 
     @classmethod
     def recombine(cls, batches: List["CausalLMBatch"], req_ids: List[List[int]], is_optimized_for_gaudi: bool = False) -> "CausalLMBatch":
+        assert bucket <= 0, 'Only works if BUCKET is not set'
         new_bs = round_up(sum([len(reqs) for reqs in req_ids]), BATCH_BUCKET_SIZE)
         batch_id = batches[0].batch_id
         device = batches[0].input_ids.device
@@ -601,7 +602,6 @@ class CausalLM(Model):
                 # params['passnum'] > 0 because for the first pass, padding is already done in from_pb
                 pad_amount = params["allocated_space"] - batch.input_ids.shape[-1]
                 batch.input_ids = torch.nn.functional.pad(batch.input_ids, (0, pad_amount), value=0) # TODO pad_token_id is assumed to be 0. use tokenizer.pad_token_id
-                #batch.all_input_ids = [torch.nn.functional.pad(k, (0, 0, 0, pad_amount), value=0) for k in batch.all_input_ids] # TODO pad_token_id is assumed to be 0. use tokenizer.pad_token_id
                 for req in batch.requests:
                     req.all_input_ids = torch.nn.functional.pad(req.all_input_ids, (0,0,0,pad_amount), value=0)
                 if batch.attention_mask is not None:
@@ -624,6 +624,7 @@ class CausalLM(Model):
                             )
                         new_kv[i] = tuple(tmp_lst)
                     batch.past_key_values = tuple(new_kv)
+                    batch.right_padding = bucket
                 #batch.padding_right_offset = pad_amount
 
         if self.hb_profer_started == True and self.step > self.profiling_warmup_steps + self.profiling_steps:
