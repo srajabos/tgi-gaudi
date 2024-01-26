@@ -1,6 +1,5 @@
 import os
 import tempfile
-bucket = int(os.getenv("BUCKET", "0"))
 import itertools
 import time
 import glob
@@ -48,6 +47,7 @@ BATCH_BUCKET_SIZE = int(os.environ.get('BATCH_BUCKET_SIZE', 8))
 PREFILL_BATCH_BUCKET_SIZE = int(os.environ.get('PREFILL_BATCH_BUCKET_SIZE', 4))
 DBG_TRACE_FILENAME = os.environ.get('DBG_TRACE_FILENAME')
 START_TS = None
+KV_BUCKET = int(os.getenv("KV_BUCKET", "0"))
 
 
 def count_hpu_graphs():
@@ -227,6 +227,7 @@ class CausalLMBatch(Batch):
 
     @classmethod
     def recombine(cls, batches: List["CausalLMBatch"], is_optimized_for_gaudi: bool = False) -> "CausalLMBatch":
+        assert KV_BUCKET <= 0, "KV_BUCKET should not be set if recombine is called"
         total_requests = sum(len(b) for b in batches)
         new_bs = round_up(total_requests, BATCH_BUCKET_SIZE)
         batch_id = batches[0].batch_id
@@ -407,13 +408,13 @@ class CausalLMBatch(Batch):
         input_ids = tokenized_inputs["input_ids"]
         attention_mask = tokenized_inputs["attention_mask"]
         prompt_len = input_ids.shape[-1]
-        inc = iter(incrementor(bucket, prompt_len)) if bucket > 0 else None
+        inc = iter(incrementor(KV_BUCKET, prompt_len)) if KV_BUCKET > 0 else None
 
         if is_optimized_for_gaudi:
-            if bucket > 0:
-                allocated_len = round(prompt_len, bucket)
-                if prompt_len % bucket == 0:
-                    allocated_len += bucket
+            if KV_BUCKET > 0:
+                allocated_len = round(prompt_len, KV_BUCKET)
+                if prompt_len % KV_BUCKET == 0:
+                    allocated_len += KV_BUCKET
                 pad_amount = allocated_len - prompt_len
             else:
                 pad_amount = max_new_tokens + extra_padding
@@ -686,12 +687,12 @@ class CausalLM(Model):
     def generate_token(self, batch: CausalLMBatch) -> Tuple[List[Generation], Optional[CausalLMBatch]]:
         prefill = batch.past_key_values is None
         # Check if we need to do any bookkeeping first
-        if not prefill:
+        if not prefill and KV_BUCKET <= 0:
             batch = batch.__class__.recombine([batch], self.is_optimized_for_gaudi)
 
         scenario = 'PREFILL' if prefill else 'GENERATE'
         dbg_trace(scenario, f'bs:{batch.batch_size} num_reqs:{len(batch.requests)} seq_len:{batch.seq_length} padding:{batch.right_padding}')
-        assert batch.right_padding > 0, 'No more room for next token!'
+        assert batch.right_padding > 0 or batch.bucketing_info is not None, 'No more room for next token!'
         self.step = self.step + 1
         if batch.bucketing_info is not None:
             params = next(batch.bucketing_info)
@@ -713,15 +714,15 @@ class CausalLM(Model):
                             pad_tuple = (0, 0, 0, pad_amount)
                             # Different models might have different shapes of kv-cache
                             # create_pad_arg handles them on a per-model basis
-                            # This is a necessary (but not sufficient) condition: what ever dimension we are padding, should be a multiple of bucket
+                            # This is a necessary (but not sufficient) condition: what ever dimension we are padding, should be a multiple of KV_BUCKET
                             # This check is added in case we get a new model with a new kv-cache structure, and we attempt to pad some wrong dimension
-                            assert batch.past_key_values[i][j].shape[-(len(pad_tuple) // 2)] % bucket == 0, f'{batch.past_key_values[i][j].shape} {pad_tuple}'
+                            assert batch.past_key_values[i][j].shape[-(len(pad_tuple) // 2)] % KV_BUCKET == 0, f'{batch.past_key_values[i][j].shape} {pad_tuple}'
                             tmp_lst[j] = torch.nn.functional.pad(
                                 batch.past_key_values[i][j], pad_tuple, value=0 # TODO use tokenizer.pad_token_id
                             )
                         new_kv[i] = tuple(tmp_lst)
                     batch.past_key_values = tuple(new_kv)
-                    batch.right_padding = bucket
+                    batch.right_padding = KV_BUCKET
                 #batch.padding_right_offset = pad_amount
 
         if self.hb_profer_started == True and self.step > self.profiling_warmup_steps + self.profiling_steps:
