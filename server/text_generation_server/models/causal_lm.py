@@ -99,8 +99,12 @@ def move_data(dst_tensor, chunk_size, indices, src_tensors):
     return result
 
 
+def get_possible_shift_chunks():
+    return [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+
+
 def generate_shift_chunks(offset):
-    chunk_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+    chunk_sizes = get_possible_shift_chunks()
     result = []
     while offset != 0:
         sign = 1 if offset > 0 else -1
@@ -965,15 +969,15 @@ class CausalLM(Model):
         return generations, batch if not stopped else None
 
     def warmup(self, batches: List[CausalLMBatch]) -> None:
-        self.shifting_warmup()
-
         if len(batches) < 2:
             return
 
         # prefill
         _, prefill_batch = self.generate_token([batches[0]])
+        self.shifting_warmup(prefill_batch)
         # decode
         _, decode_batch = self.generate_token([prefill_batch])
+        self.shifting_warmup(decode_batch)
         # prefill
         _, prefill_batch = self.generate_token([batches[1]])
         # concatenate and decode
@@ -982,6 +986,21 @@ class CausalLM(Model):
         while decode_batch is not None:
             _, decode_batch = self.generate_token([decode_batch])
 
-    def shifting_warmup(self) -> None:
-        # TODO: add warmup for all possible shift variants
-        pass
+    def shifting_warmup(self, batch: CausalLMBatch) -> None:
+        chunk_sizes = get_possible_shift_chunks()
+        chunk_sizes.extend([-chunk for chunk in chunk_sizes])
+
+        # input_ids and attention_mask
+        shape = (batch.batch_size, MAX_TOTAL_TOKENS)
+        tensor = torch.ones(shape, dtype=batch.input_ids.dtype, device=batch.input_ids.device)
+        htorch.core.mark_step()
+        roll(tensor, -1, chunk_sizes)
+
+        # kv_cache
+        if batch.past is not None:
+            key = batch.past[0][0]
+            num_layers = len(batch.past)
+            shape = (num_layers, key.size(0), key.size(1), MAX_TOTAL_TOKENS, key.size(3))
+            tensor = torch.ones(shape, dtype=key.dtype, device=key.device)
+            htorch.core.mark_step()
+            roll(tensor, -2, chunk_sizes)
