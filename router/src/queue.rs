@@ -11,6 +11,7 @@ use text_generation_client::{Batch, Request};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Span};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Queue entry
 #[derive(Debug)]
@@ -115,6 +116,7 @@ async fn queue_task(
     );
 
     while let Some(cmd) = receiver.recv().await {
+        //println!("sasarkar: WHILE queue_task");
         match cmd {
             QueueCommand::Append(entry, span) => {
                 span.in_scope(|| state.append(*entry));
@@ -326,6 +328,11 @@ impl State {
 
         // Pop entries starting from the front of the queue
         while let Some(IdentifiableEntry(id, mut entry)) = self.entries.pop() {
+            match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(n) => println!("sasarkar: WHILE next_batch {} {}", id, n.as_secs()),
+                Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+            }
+            
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_closed() {
@@ -367,6 +374,11 @@ impl State {
             {
                 // Entry is over budget
                 // Add it back to the front
+                match SystemTime::now().duration_since(UNIX_EPOCH) {
+                    Ok(n) => println!("sasarkar: self.entries.push -- {} {}", id, n.as_secs()),
+                    Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+                }
+
                 self.entries.push(IdentifiableEntry(id, entry));
                 break;
             }
@@ -402,6 +414,10 @@ impl State {
         // Check if our batch is big enough
         if let Some(min_size) = min_size {
             // Batch is too small
+            match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(n) => println!("sasarkar: BATCH TOO SMALL {}", n.as_secs()),
+                Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+            }
             if batch_requests.len() < min_size {
                 // Add back entries to the queue in the correct order
                 for r in batch_requests.into_iter().rev() {

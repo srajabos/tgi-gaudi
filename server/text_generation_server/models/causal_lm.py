@@ -4,7 +4,7 @@ import itertools
 import bisect
 import math
 
-import torch
+import torch, time
 
 from dataclasses import dataclass
 from opentelemetry import trace
@@ -199,6 +199,7 @@ class CausalLMRequest:
 
     @classmethod
     def from_pb(cls, idx: int, data: generate_pb2.Request, tokenizer: PreTrainedTokenizerBase):
+        logger.critical(f'FROM_BB >>>>>>>>> {idx}')
         return cls(
             idx=idx,
             data=data,
@@ -359,13 +360,14 @@ class CausalLMBatch(Batch):
             # Nothing to do
             return batches[0]
 
-        dbg_trace(
-            scenario, f'bs:{[b.batch_size for b in batches]}->{new_bs}'
+        logger.critical(
+            f'{scenario}:: bs:{[b.batch_size for b in batches]}->{new_bs}'
                       f' reqs:{[len(b) for b in batches]}'
                       f' offsets:{offsets}'
                       f' input_lengths:{input_lengths}'
                       f' cur_padding:{cur_padding}'
-                      f' dst_batch:{dst_batch_idx}')
+                      f' dst_batch:{dst_batch_idx}'
+                      f' || time: {time.time()}')
 
         grouped_requests = [[req for req in batch.requests] for batch in batches]
         flat_requests = list(itertools.chain(*grouped_requests))
@@ -424,7 +426,7 @@ class CausalLMBatch(Batch):
         device: torch.device,
         is_optimized_for_gaudi: bool = False,
     ) -> "CausalLMBatch":
-        dbg_trace('FROM_PB', f'num_reqs:{len(pb.requests)}')
+        logger.critical('FROM_PB', f'num_reqs:{len(pb.requests)} || time: {time.time()}')
         requests = [CausalLMRequest.from_pb(idx, req, tokenizer) for idx, req in enumerate(pb.requests)]
 
         max_input_length = max(r.data.truncate for r in requests)
@@ -512,7 +514,7 @@ class CausalLMBatch(Batch):
 
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> Optional["CausalLMBatch"]:
-        dbg_trace('FILTER', f'num_reqs:{len(self.requests)} -> {len(request_ids)}')
+        logger.critical(f'FILTER:: num_reqs:{len(self.requests)} -> {len(request_ids)} || time: {time.time()}')
         request_ids = set(request_ids)
         self.requests = [req for req in self.requests if req.data.id in request_ids]
         return self
@@ -593,7 +595,7 @@ class CausalLM(Model):
 
             # Initialize process(es) for DeepSpeed
             deepspeed.init_distributed(dist_backend="hccl")
-            logger.info(
+            logger.critical(
                 "DeepSpeed is enabled. world_size {} rank {} local_rank {}".format(world_size, rank, local_rank)
             )
             config = AutoConfig.from_pretrained(model_id, **model_kwargs)
@@ -875,8 +877,8 @@ class CausalLM(Model):
             batch = batch.__class__.recombine([batch], self.tokenizer.pad_token_id)
 
         scenario = 'PREFILL' if prefill else 'GENERATE'
-        dbg_trace(
-            scenario, f'bs:{batch.batch_size} num_reqs:{len(batch.requests)} seq_len:{batch.seq_length} padding:{batch.right_padding}')
+        logger.critical(
+            f'{scenario}:: bs:{batch.batch_size} num_reqs:{len(batch.requests)} seq_len:{batch.seq_length} padding:{batch.right_padding} || time: {time.time()}')
         assert batch.right_padding > 0, 'No more room for next token!'
 
         if self.is_optimized_for_gaudi:
