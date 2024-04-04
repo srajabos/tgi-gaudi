@@ -1597,8 +1597,10 @@ version = "1.11.0"
 description = "Optimum Habana is the interface between the Hugging Face Transformers and Diffusers libraries and Habana's Gaudi processor (HPU). It provides a set of tools enabling easy model loading, training and inference on single- and multi-HPU settings for different downstream tasks."
 optional = false
 python-versions = "*"
-files = []
-develop = false
+files = [
+    {file = "optimum-habana-1.11.0.tar.gz", hash = "sha256:d7c7caea5daf17c0d520c52797d8a663432de6aa9ee8b35f6304d1646f225826"},
+    {file = "optimum_habana-1.11.0-py3-none-any.whl", hash = "sha256:7e94b40d339ac42f754d6e0c9f7df513ebd1afd63307ec2f05e677adfbe347c4"},
+]
 
 [package.dependencies]
 accelerate = "<0.28.0"
@@ -1608,14 +1610,8 @@ torch = "*"
 transformers = ">=4.38.0,<4.39.0"
 
 [package.extras]
-quality = ["hf_doc_builder", "ruff"]
+quality = ["hf-doc-builder", "ruff"]
 tests = ["GitPython", "datasets", "optuna", "parameterized", "psutil", "pytest (<8.0.0)", "safetensors", "sentencepiece"]
-
-[package.source]
-type = "git"
-url = "https://github.com/huggingface/optimum-habana.git"
-reference = "v1.11-release"
-resolved_reference = "eaac913c56617a4deefa99548d89366722b7397e"
 
 [[package]]
 name = "packaging"
@@ -3114,4 +3110,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "e4f8817408552fbf2594ccac3c20f235c31b545e29fa78b8a486d159f3ee1fd2"
+content-hash = "26a5e70518155475c37790c079b0823cc80bce28fb1dcb5120d20bcc07178f56"
