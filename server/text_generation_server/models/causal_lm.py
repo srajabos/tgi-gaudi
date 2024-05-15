@@ -397,8 +397,9 @@ class CausalLMBatch(Batch):
         top_n_tokens_tensor = torch.tensor(top_n_tokens, device=device, dtype=torch.int64)
 
         parameters = [r.data.parameters for r in flat_requests]
+
         if len(flat_requests) < new_bs:
-            for i in range(new_bs-len(flat_requests)) :
+            for i in range(batches[dst_batch_idx].batch_size-len(flat_requests)) :
                 # append the dummy parameters for dummy request
                 parameters.append(parameters[0])
 
