@@ -398,10 +398,12 @@ class CausalLMBatch(Batch):
 
         parameters = [r.data.parameters for r in flat_requests]
 
-        if len(flat_requests) < new_bs:
-            for i in range(batches[dst_batch_idx].batch_size-len(flat_requests)) :
-                # append the dummy parameters for dummy request
-                parameters.append(parameters[0])
+        batch_size = batches[dst_batch_idx].batch_size
+        parameters.extend(
+            [generate_pb2.NextTokenChooserParameters()] * (batch_size - len(flat_requests))
+        )
+        dbg_trace(
+            scenario, f'para len:{len(parameters), batch_size {batch_size}, flat_req {len(flat_requests}, input_id {batches[dst_batch_idx].input_ids.shape}')
 
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             parameters,
@@ -827,11 +829,15 @@ class CausalLM(Model):
 
         kwargs.update(self.kwargs)
         if past_key_values is not None:
-            return self.model.forward(**kwargs)
+            output = self.model.forward(**kwargs)
+            logits = output
+            #return self.model.forward(**kwargs)
         else:
             outputs = self.model.forward(**kwargs)
-            return outputs.logits, outputs.past_key_values
-
+            output =  outputs.logits, outputs.past_key_values
+            logits = outputs.logits
+        dbg.trace('debug', f'debug foward input_id {input_ids.shape}, logits {logits.shape}')
+        return output
     @tracer.start_as_current_span("generate_token")
     def generate_token(
         self, batches: List[CausalLMBatch]
