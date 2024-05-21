@@ -47,7 +47,9 @@ BATCH_BUCKET_SIZE = int(os.environ.get('BATCH_BUCKET_SIZE', 8))
 PAD_SEQUENCE_TO_MULTIPLE_OF = int(os.environ.get('PAD_SEQUENCE_TO_MULTIPLE_OF', 128))
 PREFILL_BATCH_BUCKET_SIZE = int(os.environ.get('PREFILL_BATCH_BUCKET_SIZE', 4))
 CHUNK_SIZES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+MAX_BATCH_TOTAL_TOKENS =  int(os.environ.get('MAX_BATCH_TOTAL_TOKENS', 0))
 
+MAX_BATCH_SIZES = int(MAX_BATCH_TOTAL_TOKENS/MAX_TOTAL_TOKENS)
 
 def round_up(number, k):
     return (number + k - 1) // k * k
@@ -343,11 +345,14 @@ class CausalLMBatch(Batch):
 
         moves_needed = [total_requests - len(b) if b.batch_size == new_bs else total_requests for b in batches]
         dst_batch_idx = min(enumerate(moves_needed), key=lambda idx_val: idx_val[1])[0]
-        reshape = (batches[dst_batch_idx].batch_size < new_bs)
+        reshape = (batches[dst_batch_idx].batch_size < new_bs) and new_bs <= MAX_BATCH_SIZES if  MAX_BATCH_TOTAL_TOKENS > 0 else True
+        concat = len(batches) > 1 and new_bs <= MAX_BATCH_SIZES if  MAX_BATCH_TOTAL_TOKENS > 0 else True
+
+
 
         # TODO: Add support for changing max seq len, i.e. due to output length bucketing
         # FIXME: max_seq_len for non optimized code
-        if len(batches) > 1:
+        if concat :
             scenario = 'CONCAT'
         elif reshape:
             scenario = 'RESHAPE'
@@ -365,6 +370,8 @@ class CausalLMBatch(Batch):
                       f' offsets:{offsets}'
                       f' input_lengths:{input_lengths}'
                       f' cur_padding:{cur_padding}'
+                      f' MAX_BATCH_TOTAL_TOKEN:{MAX_BATCH_TOTAL_TOKENS}'
+                      f' MAX_BATCH_SIZES:{MAX_BATCH_SIZES}'
                       f' dst_batch:{dst_batch_idx}')
 
         grouped_requests = [[req for req in batch.requests] for batch in batches]
