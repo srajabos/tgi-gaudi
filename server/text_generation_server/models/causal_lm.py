@@ -358,7 +358,7 @@ class CausalLMBatch(Batch):
 
         moves_needed = [total_requests - len(b) if b.batch_size == new_bs else total_requests for b in batches]
         dst_batch_idx = min(enumerate(moves_needed), key=lambda idx_val: idx_val[1])[0]
-        reshape = (batches[dst_batch_idx].batch_size != new_bs)
+        reshape = (batches[dst_batch_idx].batch_size < new_bs)
 
         # TODO: Add support for changing max seq len, i.e. due to output length bucketing
         # FIXME: max_seq_len for non optimized code
@@ -500,10 +500,10 @@ class CausalLMBatch(Batch):
         attention_mask = torch.nn.functional.pad(
             attention_mask, (left_padding, 1), value=0
         )
+
         all_input_ids = torch.nn.functional.pad(
             input_ids, (0, max_new_tokens), value=tokenizer.pad_token_id
         ).T.split(1, dim=1)
-
         # New input length after left padding
         input_len = bucket_size
         for r in requests:
