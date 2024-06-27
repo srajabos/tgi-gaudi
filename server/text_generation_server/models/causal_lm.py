@@ -1,5 +1,6 @@
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company.
 
+
 import bisect
 from dataclasses import dataclass
 from functools import wraps
@@ -46,6 +47,7 @@ from text_generation_server.utils import (
     StoppingCriteria,
     make_tokenizer_optional,
     is_tokenizer_transparent,
+    pad_next_token_chooser_parameters,
 )
 from text_generation_server.utils.debug import dbg_trace
 from text_generation_server.utils.speculate import get_speculate
@@ -397,11 +399,9 @@ class CausalLMBatch(Batch):
         top_n_tokens_tensor = torch.tensor(top_n_tokens, device=device, dtype=torch.int64)
 
         parameters = [r.data.parameters for r in flat_requests]
-        if len(flat_requests) < new_bs:
-            for i in range(new_bs-len(flat_requests)) :
-                # append the dummy parameters for dummy request
-                parameters.append(parameters[0])
-
+        # append the dummy parameters for dummy requests
+        batch_size = batches[dst_batch_idx].batch_size
+        parameters = pad_next_token_chooser_parameters(parameters, batch_size)
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             parameters,
             batches[dst_batch_idx].next_token_chooser.dtype,
@@ -928,6 +928,7 @@ class CausalLM(Model):
         scenario = 'PREFILL' if prefill else 'GENERATE'
         dbg_trace(
             scenario, f'bs:{batch.batch_size} num_reqs:{len(batch.requests)} seq_len:{batch.seq_length} padding:{batch.right_padding}')
+
         assert batch.right_padding > 0, 'No more room for next token!'
 
         # Execute batch
@@ -953,7 +954,6 @@ class CausalLM(Model):
                 batch.past_key_values,
                 bypass_hpu_graph=prefill and self.limit_hpu_graph if self.enable_hpu_graph else None
             )
-
         htorch.core.mark_step()
 
         start_decode = time.time_ns()
