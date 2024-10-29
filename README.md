@@ -20,12 +20,41 @@ limitations under the License.
 
 - [Text Generation Inference on Habana Gaudi](#text-generation-inference-on-habana-gaudi)
   - [Table of contents](#table-of-contents)
+  - [Tested Models and Configurations](#tested-models-and-configurations)
   - [Running TGI on Gaudi](#running-tgi-on-gaudi)
   - [Running TGI with BF16 Precision](#running-tgi-with-bf16-precision)
   - [Running TGI with FP8 Precision](#running-tgi-with-fp8-precision)
+  - [TGI-Gaudi Benchmark](#tgi-gaudi-benchmark)
   - [Adjusting TGI Parameters](#adjusting-tgi-parameters)
-  - [Environment variables](#environment-variables)
+  - [Environment Variables](#environment-variables)
   - [Profiler](#profiler)
+
+
+## Tested Models and Configurations
+
+The following table contains models and configurations we have validated on Gaudi2.
+
+
+|  Model                 |  BF16        |             |  FP8         |             |
+| ---------------------- | ------------ | ----------- | ------------ | ----------- |
+|                        |  Single Card |  Multi-Card |  Single Card |  Multi-Card |
+|  Llama2-7B             |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Llama2-70B            |              |  ✔          |              |  ✔          |
+|  Llama3-8B             |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Llama3-70B            |              |  ✔          |              |  ✔          |
+|  Llama3.1-8B           |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Llama3.1-70B          |              |  ✔          |              |  ✔          |
+|  CodeLlama-13B         |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Mixtral-8x7B          |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Mistral-7B            |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Falcon-180B           |              |  ✔          |              |  ✔          |
+|  Qwen2-72B             |              |  ✔          |              |  ✔          |
+|  Starcoder2-3b         |  ✔           |  ✔          |  ✔           |             |
+|  Starcoder2-15b        |  ✔           |  ✔          |  ✔           |             |
+|  Starcoder             |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Gemma-7b              |  ✔           |  ✔          |  ✔           |  ✔          |
+|  Llava-v1.6-Mistral-7B |  ✔           |  ✔          |  ✔           |  ✔          |
+
 
 ## Running TGI on Gaudi
 
@@ -82,43 +111,6 @@ To use [🤗 text-generation-inference](https://github.com/huggingface/text-gene
    ```
 4. Please note that the model warmup can take several minutes, especially for FP8 inference. To minimize this time in consecutive runs, please refer to [Disk Caching Eviction Policy](https://docs.habana.ai/en/latest/PyTorch/Model_Optimization_PyTorch/Optimization_in_PyTorch_Models.html#disk-caching-eviction-policy).
 
-### TGI-Gaudi Benchmark
-
-#### Static Batching Benchmark
- To run static batching benchmark, please refer to [TGI's benchmark tool](https://github.com/huggingface/text-generation-inference/tree/main/benchmark).
-
-   To run it on the same machine, you can do the following:
-   * `docker exec -it <docker name> bash` , pick the docker started from step 2 using docker ps
-   * `text-generation-benchmark -t <model-id>` , pass the model-id from docker run command
-   * after the completion of tests, hit ctrl+c to see the performance data summary.
-
-#### Continuous Batching Benchmark
- To run continuous batching benchmark, please refer to [README in examples folder](https://github.com/huggingface/tgi-gaudi/blob/habana-main/examples/README.md).
-
-### Tested Models and Configurations
-
-The following table contains models and configurations we have validated on Gaudi2.
-
-
-|  Model                 |  BF16        |             |  FP8         |             |
-| ---------------------- | ------------ | ----------- | ------------ | ----------- |
-|                        |  Single Card |  Multi-Card |  Single Card |  Multi-Card |
-|  Llama2-7B             |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Llama2-70B            |              |  ✔          |              |  ✔          |
-|  Llama3-8B             |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Llama3-70B            |              |  ✔          |              |  ✔          |
-|  Llama3.1-8B           |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Llama3.1-70B          |              |  ✔          |              |  ✔          |
-|  CodeLlama-13B         |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Mixtral-8x7B          |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Mistral-7B            |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Falcon-180B           |              |  ✔          |              |  ✔          |
-|  Qwen2-72B             |              |  ✔          |              |  ✔          |
-|  Starcoder2-3b         |  ✔           |  ✔          |  ✔           |             |
-|  Starcoder2-15b        |  ✔           |  ✔          |  ✔           |             |
-|  Starcoder             |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Gemma-7b              |  ✔           |  ✔          |  ✔           |  ✔          |
-|  Llava-v1.6-Mistral-7B |  ✔           |  ✔          |  ✔           |  ✔          |
 
 ## Running TGI with BF16 Precision
 
@@ -503,6 +495,20 @@ docker run -p 8080:80 \
    --max-input-tokens 4096 --max-batch-prefill-tokens 16384 \
    --max-total-tokens 8192 --max-batch-total-tokens 32768
 ```
+
+## TGI-Gaudi Benchmark
+
+### Static Batching Benchmark
+ To run static batching benchmark, please refer to [TGI's benchmark tool](https://github.com/huggingface/text-generation-inference/tree/main/benchmark).
+
+   To run it on the same machine, you can do the following:
+   * `docker exec -it <docker name> bash` , pick the docker started from step 2 using docker ps
+   * `text-generation-benchmark -t <model-id>` , pass the model-id from docker run command
+   * after the completion of tests, hit ctrl+c to see the performance data summary.
+
+### Continuous Batching Benchmark
+ To run continuous batching benchmark, please refer to [README in examples folder](https://github.com/huggingface/tgi-gaudi/blob/habana-main/examples/README.md).
+
 
 ## Adjusting TGI Parameters
 
