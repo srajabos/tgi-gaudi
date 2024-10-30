@@ -19,6 +19,7 @@ pub(crate) struct Decode {
     pub(crate) latency: Duration,
     pub(crate) token_latency: Duration,
     pub(crate) throughput: f64,
+    pub(crate) num_tokens: u32,
 }
 
 #[derive(Debug)]
@@ -206,12 +207,14 @@ async fn decode(batch: CachedBatch, client: &mut ShardedClient) -> Result<Decode
     let token_latency = latency / decode_length;
 
     // Compute throughput from latency, batch size and decode length
-    let throughput = (batch_size * decode_length) as f64 / latency.as_secs_f64();
+    let num_tokens = (batch_size * decode_length) as u32;
+    let throughput = num_tokens as f64 / latency.as_secs_f64();
 
     let step = Decode {
         latency,
         token_latency,
         throughput,
+        num_tokens,
     };
     Ok(step)
 }

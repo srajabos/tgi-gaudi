@@ -124,12 +124,19 @@ impl App {
 
     /// Get all pending messages from generation task
     pub(crate) fn tick(&mut self) {
+        let mut num_decode_tokens = 0;
         while let Ok(message) = self.receiver.try_recv() {
             match message {
                 Ok(message) => match message {
-                    Message::Prefill(step) => self.data.push_prefill(step, self.current_batch),
-                    Message::Decode(step) => self.data.push_decode(step, self.current_batch),
+                    Message::Prefill(step) => {
+                        self.data.push_prefill(step, self.current_batch)
+                    }
+                    Message::Decode(step) => {
+                        num_decode_tokens = step.num_tokens;
+                        self.data.push_decode(step, self.current_batch)
+                    }
                     Message::EndRun => {
+                        self.data.push_overall(num_decode_tokens, self.current_batch);
                         self.completed_runs[self.current_batch] += 1;
                     }
                     Message::EndBatch => {
@@ -374,6 +381,7 @@ pub(crate) struct Data {
     pub(crate) decode_throughputs: Vec<Vec<f64>>,
     pub(crate) prefill_batch_latency_throughput: Vec<(f64, f64)>,
     pub(crate) decode_batch_latency_throughput: Vec<(f64, f64)>,
+    pub(crate) overall_throughputs: Vec<Vec<f64>>,
 }
 
 impl Data {
@@ -386,6 +394,7 @@ impl Data {
         let decode_latencies: Vec<Vec<f64>> = prefill_latencies.clone();
         let decode_token_latencies: Vec<Vec<f64>> = decode_latencies.clone();
         let decode_throughputs: Vec<Vec<f64>> = prefill_throughputs.clone();
+        let overall_throughputs: Vec<Vec<f64>> = prefill_throughputs.clone();
 
         let prefill_batch_latency_throughput: Vec<(f64, f64)> =
             Vec::with_capacity(batch_size.len());
@@ -401,6 +410,7 @@ impl Data {
             decode_throughputs,
             prefill_batch_latency_throughput,
             decode_batch_latency_throughput,
+            overall_throughputs,
         }
     }
 
@@ -416,6 +426,13 @@ impl Data {
         self.decode_latencies[batch_idx].push(latency);
         self.decode_token_latencies[batch_idx].push(token_latency);
         self.decode_throughputs[batch_idx].push(decode.throughput);
+    }
+
+    fn push_overall(&mut self, num_decode_tokens: u32, batch_idx: usize){
+        let prefill_latency = self.prefill_latencies[batch_idx].iter().sum::<f64>() / self.prefill_latencies[batch_idx].len() as f64; //self.prefill_latencies[batch_idx][0];
+        let decode_latency = self.decode_latencies[batch_idx].iter().sum::<f64>() / self.decode_latencies[batch_idx].len() as f64; //self.decode_latencies[batch_idx][0];
+        let overall_throughput = (num_decode_tokens + self.batch_size[batch_idx])as f64 * 1000.0 /(prefill_latency + decode_latency);
+        self.overall_throughputs[batch_idx].push(overall_throughput);
     }
 
     fn end_batch(&mut self, batch_idx: usize) {

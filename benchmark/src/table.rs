@@ -98,6 +98,12 @@ pub(crate) fn throughput_table(data: &Data) -> Table {
         &data.batch_size,
         &data.decode_throughputs,
     );
+    add_throuhgputs(
+        &mut builder,
+        "Overall",
+        &data.batch_size,
+        &data.overall_throughputs,
+    );
 
     let mut table = builder.build();
     table.with(Style::markdown()).with(Merge::vertical());
