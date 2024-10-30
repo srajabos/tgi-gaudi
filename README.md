@@ -505,6 +505,7 @@ docker run -p 8080:80 \
    * `docker exec -it <docker name> bash` , pick the docker started from step 2 using docker ps
    * `text-generation-benchmark -t <model-id>` , pass the model-id from docker run command
    * after the completion of tests, hit ctrl+c to see the performance data summary.
+> Note: This benchmark runs the model with bs=[1, 2, 4, 8, 16, 32], sequence_length=10 and decode_length=8 by default. if you want to run other configs, please check text-generation-benchmark -h and change the parameters.
 
 ### Continuous Batching Benchmark
  To run continuous batching benchmark, please refer to [README in examples folder](https://github.com/huggingface/tgi-gaudi/blob/habana-main/examples/README.md).
