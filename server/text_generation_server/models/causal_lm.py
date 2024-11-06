@@ -460,11 +460,11 @@ class CausalLMBatch(Batch):
         tokenizer: PreTrainedTokenizerBase,
         dtype: torch.dtype,
         device: torch.device,
+        max_input_length: int = PAD_SEQUENCE_TO_MULTIPLE_OF,
     ) -> "CausalLMBatch":
         dbg_trace('FROM_PB', f'num_reqs:{len(pb.requests)}')
         requests = [CausalLMRequest.from_pb(idx, req, tokenizer) for idx, req in enumerate(pb.requests)]
 
-        max_input_length = max(r.data.truncate for r in requests)
         max_new_tokens = max(r.stopping_criteria.max_new_tokens for r in requests)
 
         # TODO: Add support for sparse batches
